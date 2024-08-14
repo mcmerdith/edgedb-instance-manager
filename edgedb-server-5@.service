@@ -17,15 +17,15 @@ Type=notify
 User=edgedb
 Group=edgedb
 
-Environment="EDGEDB_SERVER_DATADIR=/var/lib/edgedb/5/%i/data/"
 Environment="EDGEDB_SERVER_RUNSTATE_DIR=%t/edgedb/%i"
 Environment="EDGEDB_SERVER_PORT_FILE=/var/lib/edgedb/5/%i/config/port"
+Environment="EDGEDB_SERVER_BACKEND_DSN_FILE=/var/lib/edgedb/5/%i/config/backend_dsn"
 Environment="EDGEDB_SERVER_INSTANCE_NAME=%i"
 Environment="EDGEDB_SERVER_TLS_CERT_MODE=generate_self_signed"
 Environment="EDGEDB_SERVER_ADMIN_UI=enabled"
 RuntimeDirectory=edgedb/%i
 
-ExecStart=/usr/lib/x86_64-linux-gnu/edgedb-server-5/bin/edgedb-server 
+ExecStart=/usr/lib/x86_64-linux-gnu/edgedb-server-5/bin/edgedb-server
 ExecReload=/bin/kill -HUP ${MAINPID}
 KillMode=mixed
 KillSignal=SIGINT

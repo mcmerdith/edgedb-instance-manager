@@ -9,6 +9,17 @@ check_exitcode () {
 	fi
 }
 
+assert_exists () {
+	if [ -z "$1" ]; then
+		echo "  Failed! No value provided."
+		exit 1
+	fi
+}
+
+percentencode () {
+	python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$1"
+}
+
 # check permissions
 sudo echo > /dev/null
 
@@ -30,9 +41,12 @@ if [ ! -f "$SYSTEM_UNITFILE" ]; then
 fi
 
 read -p "Enter the name of the new instance: " INSTANCE
+assert_exists "$INSTANCE"
 read -p "Enter the listen port for '${INSTANCE}': " INSTANCE_PORT
+assert_exists "$INSTANCE_PORT"
 read -sp "Enter the password for '${INSTANCE}': " INSTANCE_PW
 echo
+assert_exists "$INSTANCE_PW"
 read -sp "Confirm the password for '${INSTANCE}': " INSTANCE_PW_CONF
 echo
 
@@ -40,6 +54,40 @@ if [ "$INSTANCE_PW" != "$INSTANCE_PW_CONF" ]; then
 	echo "Passwords do not match! Cannot continue."
 	exit 1
 fi
+
+read -p "Enter the 'hostname:port' for your Postgres instance (default 'localhost'): " POSTGRES_HOST
+if [ -z "$POSTGRES_HOST" ]; then
+	POSTGRES_HOST=localhost
+fi
+read -p "Enter the database name for your Postgres instance (default '${INSTANCE}'): " POSTGRES_DB
+if [ -z "$POSTGRES_DB" ]; then
+	POSTGRES_DB=$INSTANCE
+fi
+read -p "Enter the username for your Postgres instance (default 'edgedb'): " POSTGRES_USER
+if [ -z "$POSTGRES_USER" ]; then
+	POSTGRES_USER=edgedb
+fi
+read -sp "Enter the password for your Postgres instance (defaults to instance password): " POSTGRES_PW
+echo
+if [ -z "$POSTGRES_PW" ]; then
+	POSTGRES_PW=$INSTANCE_PW
+else
+	read -sp "Confirm the password for your Postgres instance: " POSTGRES_PW_CONF
+	echo
+	
+	if [ "$POSTGRES_PW" != "$POSTGRES_PW_CONF" ]; then
+		echo "Passwords do not match! Cannot continue."
+		exit 1
+	fi
+fi
+
+if [ ! -z "$POSTGRES_PW" ]; then
+	POSTGRES_USERSPEC=$( percentencode "$POSTGRES_USER"):$( percentencode "$POSTGRES_PW" )
+else
+	POSTGRES_USERSPEC=$( percentencode "$POSTGRES_USER")
+fi
+
+BACKEND_DSN="postgresql://${POSTGRES_USERSPEC}@${POSTGRES_HOST}/${POSTGRES_DB}?sslmode=require"
 
 echo "Creating instance '${INSTANCE}' ..."
 
@@ -55,7 +103,11 @@ fi
 echo "Configuring..."
 sudo -u edgedb mkdir -p ${INSTANCE_ROOT}/config
 check_exitcode
+echo "  Setting port"
 echo "${INSTANCE_PORT}" | sudo -u edgedb tee ${INSTANCE_ROOT}/config/port > /dev/null
+check_exitcode
+echo "  Configuring DSN"
+echo "${BACKEND_DSN}" | sudo -u edgedb tee ${INSTANCE_ROOT}/config/backend_dsn > /dev/null
 check_exitcode
 
 echo "Starting service..."
