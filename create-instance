@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+
+check_exitcode () {
+	if [ "$?" != "0" ]; then
+		echo "  Failed!"
+		exit 1
+	else
+		echo "  OK!"
+	fi
+}
+
+# check permissions
+sudo echo > /dev/null
+
+if [ "$?" != "0" ]; then
+	echo "This script must be run as as super-user"
+	exit 1
+fi
+
+UNITFILE="edgedb-server-5@"
+SYSTEM_UNITFILE="/etc/systemd/system/${UNITFILE}.service"
+DATADIR_ROOT="/var/lib/edgedb/5"
+
+if [ ! -f "$SYSTEM_UNITFILE" ]; then
+	echo "Unit file not present, copying..."
+	sudo cp "${UNITFILE}.service" "$SYSTEM_UNITFILE"
+	check_exitcode
+	sudo systemctl daemon-reload
+	check_exitcode
+fi
+
+read -p "Enter the name of the new instance: " INSTANCE
+read -p "Enter the listen port for '${INSTANCE}': " INSTANCE_PORT
+read -sp "Enter the password for '${INSTANCE}': " INSTANCE_PW
+echo
+read -sp "Confirm the password for '${INSTANCE}': " INSTANCE_PW_CONF
+echo
+
+if [ "$INSTANCE_PW" != "$INSTANCE_PW_CONF" ]; then
+	echo "Passwords do not match! Cannot continue."
+	exit 1
+fi
+
+echo "Creating instance '${INSTANCE}' ..."
+
+INSTANCE_ROOT="${DATADIR_ROOT}/${INSTANCE}"
+# Carve the environment variable for the rundir out
+RUNSTATE_DIR=$( systemctl show ${UNITFILE}${INSTANCE}.service -P Environment | grep -o -m 1 -- "EDGEDB_SERVER_RUNSTATE_DIR=[^ ]\+" | awk -F "=" '{print $2}' )
+
+if [ -z "$RUNSTATE_DIR" ]; then
+	echo "Failed to get 'EDGEDB_SERVER_RUNSTATE_DIR'"
+	exit 1
+fi
+
+echo "Configuring..."
+sudo -u edgedb mkdir -p ${INSTANCE_ROOT}/config
+check_exitcode
+echo "${INSTANCE_PORT}" | sudo -u edgedb tee ${INSTANCE_ROOT}/config/port > /dev/null
+check_exitcode
+
+echo "Starting service..."
+sudo systemctl enable --now ${UNITFILE}${INSTANCE}.service
+check_exitcode
+
+echo "Setting initial password..."
+sudo edgedb --port ${INSTANCE_PORT} --tls-security insecure --admin --unix-path ${RUNSTATE_DIR} query "ALTER ROLE edgedb SET password := '${INSTANCE_PW}'"
+check_exitcode
+
+echo "Instance ${INSTANCE} configured successfully!"
+echo "Instance can be controlled via the systemd unit 'edgedb-server-5@${INSTANCE}'"

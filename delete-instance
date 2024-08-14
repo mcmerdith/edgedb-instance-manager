@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+check_exitcode () {
+	if [ "$?" != "0" ]; then
+		echo "  Failed!"
+		exit 1
+	else
+		echo "  OK!"
+	fi
+}
+
+# check permissions
+sudo echo > /dev/null
+
+if [ "$?" != "0" ]; then
+	echo "This script must be run as as super-user"
+	exit 1
+fi
+
+read -p "Enter the name of the instance to delete: " INSTANCE
+
+if [ -z "$INSTANCE" ]; then
+	echo "Abort! Instance name not provided"
+	exit 1
+fi
+
+echo "This will PERMANENTLY delete instance '${INSTANCE}' including ALL user data!"
+read -p "Are you sure? [y/N] " DELETE_CONF
+
+if [ "$DELETE_CONF" != "y" ] && [ "$DELETE_CONF" != "Y" ]; then
+	echo "Cancelled!"
+	exit 0
+fi
+
+echo "Destroying instance '${INSTANCE}' ..."
+
+UNITFILE="edgedb-server-5@"
+DATADIR_ROOT="/var/lib/edgedb/5"
+INSTANCE_ROOT="${DATADIR_ROOT}/${INSTANCE}"
+
+echo "Stopping service..."
+sudo systemctl disable --now ${UNITFILE}${INSTANCE}.service
+check_exitcode
+sudo systemctl stop --now ${UNITFILE}${INSTANCE}.service
+check_exitcode
+
+echo "Purging data..."
+sudo -u edgedb rm -rf ${INSTANCE_ROOT}
+check_exitcode
+
+# Carve the environment variable for the rundir out
+RUNSTATE_DIR=$( systemctl show ${UNITFILE}${INSTANCE}.service -P Environment | grep -o -m 1 -- "EDGEDB_SERVER_RUNSTATE_DIR=[^ ]\+" | awk -F "=" '{print $2}' )
+
+if [ -z "$RUNSTATE_DIR" ]; then
+	echo "[WARN] Failed to get 'EDGEDB_SERVER_RUNSTATE_DIR'"
+else
+	sudo -u edgedb rm -rf ${RUNSTATE_DIR}
+	check_exitcode
+fi
+
+echo "Instance ${INSTANCE} deleted successfully!"
